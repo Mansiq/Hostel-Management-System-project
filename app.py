@@ -77,5 +77,15 @@ def add_room():
         })
         return redirect(url_for('room_list'))
     return render_template('add_room.html')
+@app.route('/update_student')
+def show_update_form():
+    return render_template('update_student.html')
+
+@app.route('/delete_student/<int:student_id>')
+def delete_student(student_id):
+    # Later: Delete from DB
+    flash('Student has been deleted successfully!', 'success')
+    return redirect(url_for('dashboard'))
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
