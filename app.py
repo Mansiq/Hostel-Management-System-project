@@ -1,144 +1,75 @@
-
 from flask import Flask, render_template, request, redirect, url_for, flash
-import psycopg2
-import os
 
 app = Flask(__name__)
 app.secret_key = 'm123'
 
-def get_db_connection():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
-    return conn
-
-def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Create students table
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS students (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            room_no VARCHAR(10) NOT NULL
-        )
-    ''')
-    
-    # Create rooms table
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_no VARCHAR(10) PRIMARY KEY,
-            capacity INTEGER NOT NULL,
-            occupied INTEGER DEFAULT 0
-        )
-    ''')
-    
-    conn.commit()
-    cur.close()
-    conn.close()
+# In-memory storage (data will be lost when app restarts)
+students = []
+rooms = []
+student_id_counter = 1
 
 @app.route('/')
 def dashboard():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute('SELECT COUNT(*) FROM students')
-    total_students = cur.fetchone()[0]
-    
-    cur.execute('SELECT COUNT(*) FROM rooms')
-    total_rooms = cur.fetchone()[0]
-    
-    cur.close()
-    conn.close()
-    
+    total_students = len(students)
+    total_rooms = len(rooms)
+
     return render_template('index.html',
                            total_students=total_students,
                            total_rooms=total_rooms)
 
 @app.route('/students')
 def student_list():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute('SELECT id, name, email, room_no FROM students ORDER BY id')
-    students = cur.fetchall()
-    
-    students_data = []
-    for student in students:
-        students_data.append({
-            'id': student[0],
-            'name': student[1],
-            'email': student[2],
-            'room': student[3]
-        })
-    
-    cur.close()
-    conn.close()
-    
-    return render_template('students.html', students=students_data)
+    return render_template('students.html', students=students)
 
 @app.route('/rooms')
 def room_list():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute('SELECT room_no, capacity, occupied FROM rooms ORDER BY room_no')
-    rooms = cur.fetchall()
-    
-    rooms_data = []
-    for room in rooms:
-        rooms_data.append({
-            'room_no': room[0],
-            'capacity': room[1],
-            'occupied': room[2]
-        })
-    
-    cur.close()
-    conn.close()
-    
-    return render_template('rooms.html', rooms=rooms_data)
+    return render_template('rooms.html', rooms=rooms)
 
 @app.route('/add_student', methods=['GET', 'POST'])
 def add_student():
+    global student_id_counter
+
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
         room_no = request.form['room_no']
-        
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Check if room exists and has capacity
-        cur.execute('SELECT capacity, occupied FROM rooms WHERE room_no = %s', (room_no,))
-        room = cur.fetchone()
-        
-        if room:
-            capacity, occupied = room
-            if occupied >= capacity:
-                flash(f"Room {room_no} is already full. Please choose a different room.", "danger")
-                cur.close()
-                conn.close()
+
+        # Check if email already exists
+        for student in students:
+            if student['email'] == email:
+                flash("A student with this email already exists!", "danger")
                 return redirect(url_for('add_student'))
-            else:
-                # Update room occupancy
-                cur.execute('UPDATE rooms SET occupied = occupied + 1 WHERE room_no = %s', (room_no,))
-        else:
+
+        # Check if room exists and has capacity
+        room_found = False
+        for room in rooms:
+            if room['room_no'] == room_no:
+                room_found = True
+                if room['occupied'] >= room['capacity']:
+                    flash(f"Room {room_no} is already full. Please choose a different room.", "danger")
+                    return redirect(url_for('add_student'))
+                else:
+                    room['occupied'] += 1
+                break
+
+        if not room_found:
             # Create room with default capacity
-            cur.execute('INSERT INTO rooms (room_no, capacity, occupied) VALUES (%s, %s, %s)', 
-                       (room_no, 2, 1))
-        
+            rooms.append({
+                'room_no': room_no,
+                'capacity': 2,
+                'occupied': 1
+            })
+
         # Add student
-        try:
-            cur.execute('INSERT INTO students (name, email, room_no) VALUES (%s, %s, %s)', 
-                       (name, email, room_no))
-            conn.commit()
-            flash("Student added successfully!", "success")
-        except psycopg2.IntegrityError:
-            flash("A student with this email already exists!", "danger")
-            conn.rollback()
-        
-        cur.close()
-        conn.close()
+        students.append({
+            'id': student_id_counter,
+            'name': name,
+            'email': email,
+            'room': room_no
+        })
+        student_id_counter += 1
+
+        flash("Student added successfully!", "success")
         return redirect(url_for('student_list'))
 
     return render_template('add_student.html')
@@ -148,23 +79,22 @@ def add_room():
     if request.method == 'POST':
         room_no = request.form['room_no']
         capacity = int(request.form['capacity'])
-        
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        try:
-            cur.execute('INSERT INTO rooms (room_no, capacity, occupied) VALUES (%s, %s, %s)', 
-                       (room_no, capacity, 0))
-            conn.commit()
-            flash("Room added successfully!", "success")
-        except psycopg2.IntegrityError:
-            flash("Room already exists!", "danger")
-            conn.rollback()
-        
-        cur.close()
-        conn.close()
+
+        # Check if room already exists
+        for room in rooms:
+            if room['room_no'] == room_no:
+                flash("Room already exists!", "danger")
+                return redirect(url_for('add_room'))
+
+        rooms.append({
+            'room_no': room_no,
+            'capacity': capacity,
+            'occupied': 0
+        })
+
+        flash("Room added successfully!", "success")
         return redirect(url_for('room_list'))
-    
+
     return render_template('add_room.html')
 
 @app.route('/update_student')
@@ -173,28 +103,28 @@ def show_update_form():
 
 @app.route('/delete_student/<int:student_id>')
 def delete_student(student_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Get student's room to update occupancy
-    cur.execute('SELECT room_no FROM students WHERE id = %s', (student_id,))
-    result = cur.fetchone()
-    
-    if result:
-        room_no = result[0]
-        # Delete student
-        cur.execute('DELETE FROM students WHERE id = %s', (student_id,))
+    global students, rooms
+
+    # Find and remove student
+    student_to_remove = None
+    for i, student in enumerate(students):
+        if student['id'] == student_id:
+            student_to_remove = students.pop(i)
+            break
+
+    if student_to_remove:
         # Update room occupancy
-        cur.execute('UPDATE rooms SET occupied = occupied - 1 WHERE room_no = %s AND occupied > 0', (room_no,))
-        conn.commit()
+        room_no = student_to_remove['room']
+        for room in rooms:
+            if room['room_no'] == room_no and room['occupied'] > 0:
+                room['occupied'] -= 1
+                break
+
         flash('Student has been deleted successfully!', 'success')
     else:
         flash('Student not found!', 'danger')
-    
-    cur.close()
-    conn.close()
+
     return redirect(url_for('student_list'))
 
 if __name__ == '__main__':
-    init_db()
-    app.run(host='0.0.0.0', debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
