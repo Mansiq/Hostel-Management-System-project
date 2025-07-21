@@ -3,9 +3,12 @@ from flask_sqlalchemy import SQLAlchemy
 import os
 from dotenv import load_dotenv
 app = Flask(__name__)
+
 load_dotenv()
 
 app.secret_key = os.getenv("SECRET_KEY")
+
+
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hostel.db'
