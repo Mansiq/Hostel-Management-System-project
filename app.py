@@ -1,14 +1,18 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+import os
+from dotenv import load_dotenv
 
 app = Flask(__name__)
-app.secret_key = 'm123'
+load_dotenv()
+app.secret_key = os.getenv("SECRET_KEY")
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hostel.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+
 
 # --- Models ---
 class Room(db.Model):
@@ -25,19 +29,25 @@ class Student(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    room_no = db.Column(db.String(10), db.ForeignKey('room.room_no'), nullable=False)
+    room_no = db.Column(db.String(10),
+                        db.ForeignKey('room.room_no'),
+                        nullable=False)
     room = db.relationship('Room', backref='students')
+
 
 # Create tables if not exist
 with app.app_context():
     db.create_all()
+
 
 # --- Routes ---
 @app.route('/')
 def dashboard():
     total_students = Student.query.count()
     total_rooms = Room.query.count()
-    return render_template('index.html', total_students=total_students, total_rooms=total_rooms)
+    return render_template('index.html',
+                           total_students=total_students,
+                           total_rooms=total_rooms)
 
 
 @app.route('/students')
@@ -67,7 +77,9 @@ def add_student():
 
         if room:
             if not room.has_space():
-                flash(f"Room {room_no} is already full. Please choose a different room.", "danger")
+                flash(
+                    f"Room {room_no} is already full. Please choose a different room.",
+                    "danger")
                 return redirect(url_for('add_student'))
             room.occupied += 1
         else:
@@ -119,6 +131,7 @@ def delete_student(student_id):
         flash("Student not found!", "danger")
     return redirect(url_for('student_list'))
 
+
 @app.route('/update_student/<int:student_id>', methods=['GET', 'POST'])
 @app.route('/update_student/<int:student_id>', methods=['GET', 'POST'])
 def update_student(student_id):
@@ -135,7 +148,9 @@ def update_student(student_id):
 
         # If changing to a new room, check capacity
         if new_room_no != old_room_no and room.occupied >= room.capacity:
-            flash(f"Room {new_room_no} is already full. Please choose another room.", "danger")
+            flash(
+                f"Room {new_room_no} is already full. Please choose another room.",
+                "danger")
             return redirect(url_for('update_student', student_id=student.id))
 
         # Update room occupancy if room has changed
